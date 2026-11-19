@@ -6,22 +6,34 @@ session list across accounts.
 
 [中文说明](#中文说明)
 
+## Quick start
+
+```bash
+# 1. Get it and put it on your PATH
+git clone https://github.com/GuoqingLiu-924/claude-switch.git
+cd claude-switch
+mkdir -p ~/.local/bin && ln -s "$PWD/claude-switch" ~/.local/bin/claude-switch
+
+# 2. (optional) tab completion — add this line to ~/.bashrc, then reopen the terminal
+source <(claude-switch completion bash)      # zsh: use "zsh" in ~/.zshrc
+
+# 3. Fully quit Claude Desktop, then migrate your current account (once)
+claude-switch init
+
+# 4. Add a second account and switch to it
+claude-switch add work
+claude-switch use work
+
+# 5. Open Claude Desktop and log in once. From now on switching is just:
+#    quit Claude -> claude-switch use <name> -> reopen Claude
+```
+
 ## How it works
 
 Claude Desktop keeps its login state in `~/.config/Claude`. `claude-switch`
 turns that path into a symlink and keeps one profile directory per account
 under `~/.local/share/claude-switch/profiles/`. Switching = repointing the
 symlink. It never launches the app: quit Claude, run `use`, reopen it.
-
-## Install
-
-```bash
-git clone https://github.com/GuoqingLiu-924/claude-switch.git
-cd claude-switch
-ln -s "$PWD/claude-switch" ~/.local/bin/claude-switch   # or copy it anywhere on PATH
-```
-
-Requires bash and `pgrep` (procps). Linux only.
 
 ## Usage
 
@@ -79,6 +91,8 @@ Profiles contain login cookies — never commit or share them.
 原理：把 `~/.config/Claude` 变成软链接，每个账号一个目录
 （`~/.local/share/claude-switch/profiles/<名字>`），切换就是改软链接。工具不会启动应用：
 先完全退出 Claude，运行 `claude-switch use <名字>`，再打开应用。
+
+快速开始：见上方 Quick start（克隆、链接到 PATH、退出 Claude 后 `init`、`add` + `use`、打开应用登录一次）。
 
 用法：先退出 Claude 执行一次 `claude-switch init`；之后 `add <名字>` 新建账号，
 `use <名字>` 切换（首次切到新账号需登录一次），`list` 查看，`rm` 删除。
