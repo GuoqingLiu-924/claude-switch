@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+# claude-switch — switch Claude Desktop accounts on Linux by repointing the
+# config directory (~/.config/Claude) at a per-account profile directory.
+# It never launches the app; just quit it, run `claude-switch use <name>`, reopen.
+set -euo pipefail
+
+CONF="${CLAUDE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/Claude}"
+HOME_DIR="${CLAUDE_SWITCH_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/claude-switch}"
+PROFILES="$HOME_DIR/profiles"
+SHARED="$HOME_DIR/shared-sessions"
+PROC="${CLAUDE_SWITCH_PROC:-claude-desktop|Claude}"   # process name(s), regex for pgrep -x
+
+die() { echo "error: $*" >&2; exit 1; }
+
+usage() {
+  cat <<EOF
+Usage: claude-switch <command> [name]
+
+  init          one-time: move $CONF into profiles/default and symlink it
+  add <name>    create an empty profile (log in once after switching to it)
+  use <name>    switch to a profile (Claude Desktop must be closed)
+  list          list profiles, current one marked with *
+  current       print the current profile name
+  rm <name>     delete a profile's data (asks for confirmation)
+  share         merge every profile's Code sessions into one shared directory
+
+Data lives in: $HOME_DIR
+EOF
+}
+
+valid_name() { [[ "$1" =~ ^[A-Za-z0-9._-]+$ && "$1" != . && "$1" != .. ]] || die "invalid name '$1' (use letters, digits, . _ -)"; }
+
+is_running() { pgrep -x "$PROC" >/dev/null 2>&1; }
+need_closed() {
+  if is_running && [ "${CLAUDE_SWITCH_FORCE:-}" != 1 ]; then
+    die "Claude Desktop is running. Quit it completely first (or set CLAUDE_SWITCH_FORCE=1)."
+  fi
+}
+
+current() {
+  [ -L "$CONF" ] || return 1
+  local t; t="$(readlink -f "$CONF")"
+  case "$t" in "$PROFILES"/*) basename "$t" ;; *) return 1 ;; esac
+}
+
+# Code-tab sessions live in <profile>/claude-code-sessions/<accountId>/<orgId>/.
+# Point every such dir at one shared directory so all accounts see the same sessions.
+link_sessions() {
+  local prof="$1" root="$1/claude-code-sessions" d todo=() bak
+  [ -d "$root" ] || return 0
+  mkdir -p "$SHARED"
+  for d in "$root"/*/*; do
+    [ -e "$d" ] || [ -L "$d" ] || continue
+    if [ -L "$d" ]; then
+      [ "$(readlink "$d")" = "$SHARED" ] || ln -sfn "$SHARED" "$d"
+    elif [ -d "$d" ]; then
+      todo+=("$d")
+    fi
+  done
+  [ ${#todo[@]} -gt 0 ] || return 0
+  bak="$root.backup-$(date +%Y%m%d-%H%M%S)"   # beside (not inside) root so the app won't scan it
+  cp -a "$root" "$bak" && echo "backup: $bak"
+  for d in "${todo[@]}"; do
+    cp -an "$d"/. "$SHARED"/
+    rm -rf "$d"
+    ln -s "$SHARED" "$d"
+    echo "shared sessions: ${d#$root/}"
+  done
+}
+
+cmd_init() {
+  [ -L "$CONF" ] && die "$CONF is already a symlink (current: $(current || echo unknown))"
+  [ -d "$CONF" ] || die "$CONF not found; run Claude Desktop once, or use 'add' then 'use'"
+  need_closed
+  mkdir -p "$PROFILES"
+  [ -e "$PROFILES/default" ] && die "$PROFILES/default already exists"
+  mv "$CONF" "$PROFILES/default"
+  ln -s "$PROFILES/default" "$CONF"
+  # migrate a shared dir left by an earlier version of this tool
+  if [ -d "$PROFILES/default/shared-code-sessions" ] && [ ! -e "$SHARED" ]; then
+    mv "$PROFILES/default/shared-code-sessions" "$SHARED"
+  fi
+  link_sessions "$PROFILES/default"
+  echo "done: $CONF -> $PROFILES/default"
+}
+
+cmd_add() {
+  valid_name "${1:-}"
+  [ -e "$PROFILES/$1" ] && die "profile '$1' already exists"
+  mkdir -p "$PROFILES/$1"
+  echo "created '$1'. Switch with: claude-switch use $1  (then open the app and log in once)"
+}
+
+cmd_use() {
+  valid_name "${1:-}"
+  [ -d "$PROFILES/$1" ] || die "no such profile '$1' (see: claude-switch list)"
+  [ -e "$CONF" ] && [ ! -L "$CONF" ] && die "$CONF is a real directory; run 'claude-switch init' first"
+  need_closed
+  mkdir -p "$(dirname "$CONF")"
+  ln -sfn "$PROFILES/$1" "$CONF"
+  link_sessions "$PROFILES/$1"
+  echo "switched to '$1'"
+}
+
+cmd_list() {
+  local cur p; cur="$(current || true)"
+  [ -d "$PROFILES" ] || { echo "(no profiles; run 'claude-switch init')"; return; }
+  for p in "$PROFILES"/*/; do
+    p="$(basename "$p")"
+    [ "$p" = "$cur" ] && echo "* $p" || echo "  $p"
+  done
+}
+
+cmd_current() { current || die "not managed by claude-switch (run 'init')"; }
+
+cmd_rm() {
+  valid_name "${1:-}"
+  [ -d "$PROFILES/$1" ] || die "no such profile '$1'"
+  [ "$(current || true)" = "$1" ] && die "'$1' is the current profile; switch away first"
+  read -r -p "Delete all data of profile '$1'? This cannot be undone. [y/N] " a
+  [ "$a" = y ] || [ "$a" = Y ] || die "aborted"
+  rm -rf "${PROFILES:?}/$1"
+  echo "removed '$1'"
+}
+
+cmd_share() {
+  need_closed
+  local p
+  for p in "$PROFILES"/*/; do link_sessions "${p%/}"; done
+}
+
+case "${1:-}" in
+  init) cmd_init ;;
+  add) shift; cmd_add "${1:-}" ;;
+  use) shift; cmd_use "${1:-}" ;;
+  list|ls) cmd_list ;;
+  current) cmd_current ;;
+  rm) shift; cmd_rm "${1:-}" ;;
+  share) cmd_share ;;
+  -h|--help|help|"") usage ;;
+  *) usage >&2; exit 1 ;;
+esac
