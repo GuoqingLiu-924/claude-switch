@@ -36,6 +36,17 @@ claude-switch rm work       # delete a profile's data (asks first)
 claude-switch share         # merge all profiles' Code sessions (also done automatically on init/use)
 ```
 
+## Tab completion
+
+Completes commands and profile names (for `use` / `rm`). Add one line to your shell rc:
+
+```bash
+# bash (~/.bashrc)
+source <(claude-switch completion bash)
+# zsh (~/.zshrc)
+source <(claude-switch completion zsh)
+```
+
 ## Shared Code sessions
 
 The Code tab stores sessions in `claude-code-sessions/<accountId>/<orgId>/`.
@@ -71,4 +82,5 @@ Profiles contain login cookies — never commit or share them.
 
 用法：先退出 Claude 执行一次 `claude-switch init`；之后 `add <名字>` 新建账号，
 `use <名字>` 切换（首次切到新账号需登录一次），`list` 查看，`rm` 删除。
+补全：在 `~/.bashrc` 加 `source <(claude-switch completion bash)`（zsh 同理），可补全命令和账号名。
 会话共享在 `init`/`use` 时自动完成，会先备份。切换后需重启应用才能刷新会话列表。
